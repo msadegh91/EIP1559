@@ -17,8 +17,9 @@ uncle_incl_reward:
     Uncle including reward from add uncles to a block.
     The value is 1/32 ether per uncle included.
 '''
-
-import web3_api
+#pip install web3
+from web3 import Web3 , HTTPProvider
+#import web3_api
 import requests
 import sys
 import numpy as np
@@ -27,8 +28,21 @@ import csv
 import bisect
 import seaborn as sns
 
-block_start = 12710000
-block_end = 13510000
+
+# Replace the provider URL with your desired Ethereum node URL (e.g., Infura or your local node).
+provider_url = "https://mainnet.infura.io/v3/68fc3da0eff84bd2a07f267adeca7b1e"
+web3 = Web3(Web3.HTTPProvider(provider_url))
+
+
+#block_start = 12710000
+
+#block_end = 12730000
+
+block_start = 19425581
+
+
+#block_end = 18509991
+block_end = 19426582
 
 london_fork = 12965000
 block_interval = block_end - block_start
@@ -39,6 +53,7 @@ non_FBB_gas_fee = [0] * block_interval
 static_reward = [0] * block_interval
 uncle_incl_reward = [0] * block_interval
 
+FBB_sum_MaxFeePerGas = [0] * block_interval
 
 def set_block_interval(start, end):
     global block_start, block_end, block_interval
@@ -52,6 +67,7 @@ def set_block_interval(start, end):
     non_FBB_gas_fee = [0] * block_interval
     static_reward = [0] * block_interval
     uncle_incl_reward = [0] * block_interval
+    FBB_sum_MaxFeePerGas = [0] * block_interval
 
 
 def calc_FBB():
@@ -63,12 +79,12 @@ def calc_FBB():
     }
 
     blockno = block_end
-    while blockno > block_start:
+    while blockno >= block_start:
         print('blockno =', blockno)
         url = 'https://blocks.flashbots.net/v1/blocks'
         content = requests.get(url,
                                params={
-                                   'before': str(blockno),
+                                   'before': str(blockno+1),
                                    'limit': '4'
                                }).text
         true = True
@@ -96,7 +112,8 @@ def calc_basic():
     global is_FBB_tx, FBB_coinbase_transfer, FBB_gas_fee, non_FBB_gas_fee, static_reward, uncle_incl_reward
     for blockno in range(block_start, block_end):
         print('blockno =', blockno)
-        block_info = web3_api.get_block_info(blockno)
+        block_info = web3.eth.get_block(blockno,full_transactions=True)
+        #block_info = web3_api.get_block_info(blockno)
 
         if blockno < 7280000:
             assert (
@@ -116,8 +133,12 @@ def calc_basic():
         FBB_sum = 0
         for tx in block_info['transactions']:
             txhash = HexBytes(tx.hash)
+            #txhash = HexBytes(tx['transaction_hash'])
+
+
             txtype = HexBytes(tx['type'])
-            recepit = web3_api.get_tx_receipt(txhash)
+            recepit = web3.eth.get_transaction_receipt(txhash)
+            #recepit = web3_api.get_tx_receipt(txhash)
             tx_gasfee = 0
             if txtype == HexBytes('0x0') or txtype == HexBytes('0x1'):
                 assert (type(tx['gasPrice']) == int)
@@ -139,6 +160,7 @@ def calc_basic():
                 assert (0)
             sum += tx_gasfee
             FBB_sum += tx_gasfee if txhash in is_FBB_tx else 0
+            FBB_sum_MaxFeePerGas += tx['maxFeePerGas'] if txhash in is_FBB_tx else 0
 
         #assert(FBB_sum == FBB_gas_fee[blockno-block_start]) usually is, but for miners tx, flashbots remove the gas from calculating
         FBB_gas_fee[blockno - block_start] = FBB_sum
